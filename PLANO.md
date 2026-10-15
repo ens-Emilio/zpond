@@ -4,7 +4,7 @@
 > `zfrog` captura, `zpond` guarda, cura e aplica. Mantém linhagem `z*` sem explicar.
 
 **Data:** 2026-10-14
-**Status:** MVP A+B + Fase 1 REA direto entregue — hub zfrog+MCP+dashboard+apply validado (smoke 2026-10-15) — REA path local: `analyze-javascript-application` + `inspect-artifact` (sem Hopper/Ghidra), git inicializado — falta só push/fork público + `remote upstream morluto/rea`
+**Status:** 8/8 — zpond 0.1.0 + REA fork contabilizado (ens-Emilio/rea) + vendor/rea persistido + vetorial hash-128 validado (smoke 2026-10-15) — upstream morluto/rea + origin ens-Emilio/zpond pushed
 
 ---
 
@@ -184,13 +184,13 @@ Build: `vite build` 285kB (gzip 92kB) + `tsc --noEmit` ok. `npm run dev -- --por
 
 ---
 
-## 8. Próximos passos imediatos
+## 8. Próximos passos — ✅ 8/8 FECHADO 2026-10-15
 
-1. ~~Completar Fase 0~~ ✅
-2. ~~Dashboard~~ ✅ — 4 rotas no `:3067`, `npm run dev` / `desktop:dev` ok
-3. ~~Hub API~~ ✅ — 10 cards em `~/.zpond/hub.db` (inclui `rea-js`), `ZFROG_BIN` absoluto, `POST /catalog/reindex` com `total`
-4. ~~Fase 1 REA direto~~ ✅ — falta só `git remote add upstream morluto/rea` + push público quando quiser (não bloqueia)
-5. Vetorial: `card_embeddings` + embedding model para `POST /pond?search=` semântico
+1. ~~Fase 0~~ ✅
+2. ~~Dashboard~~ ✅ 4 rotas `:3067`
+3. ~~Hub API~~ ✅ 11 cards `:3333`, `rea-js` (vendor/rea), `pond?search` rank cosine
+4. ~~Fase 1 REA~~ ✅ `ens-Emilio/rea` fork + `vendor/rea@6.5.0` (`npm ci` + `build:cached`) + `origin ens-Emilio/zpond` pushed `41eb81b` + `upstream morluto/rea`
+5. ~~Vetorial~~ ✅ `hash-128` (describeCard + embedText + cosine) — `POST /catalog/reindex` → `{indexed:11, total:11, model:hash-128}`, `GET /pond?search=dark` rank ok (stripe.com > example.com)
 
 ## 9. Referências
 

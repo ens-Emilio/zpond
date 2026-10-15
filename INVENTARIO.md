@@ -74,6 +74,12 @@
 
 `npx --yes rea-agents --help` → timeout 300s (interrupted). REA não respondeu via npx (rede ou pacote pesado). Resolvido: clone + `npm ci` local em `/tmp/rea-ref` (env `REA_BIN`).
 
+## Nota 2026-10-15 — vetorial hash-128 + REA contabilizado
+
+- Vetorial: `hub-api/src/index.ts` `describeCard` (palette HSL words + fonts + tags, port de `zfrog/visual_search.py` `describe`) + `embedText` bag-of-words hash 128d normalizado + `cosineSim`; `GET /pond?search=` usa `card_embeddings` (cosine) com fallback lexical; `POST /catalog/reindex` popula `card_embeddings` (`model:hash-128`) — smoke `indexed:11 total:11` ok, `search=dark` rank stripe.com > example.com
+- Fork: `ens-Emilio/rea` (parent morluto/rea) criado; `zpond` origin `ens-Emilio/zpond` pushed `41eb81b`; `upstream morluto/rea` setado no `zpond/.git`; `vendor/rea@6.5.0` persistido (`npm ci` + `build:cached`, `vendor/` ignorado, `REA_BIN=vendor/rea/scripts/rea.mjs`)
+- Hub `REA_BIN` fixo: vendor/rea (não mais `/tmp/rea-ref` volátil); POST /analyze path local → `rea-js`/`rea-artifact` 30s wall
+
 ## Nota 2026-10-14 — apply loop C validado + smoke revalidado
 
 `POST /packages/:id/apply` testado com os 3 agents (`kodeo/grok-4.7`, wall 210s, idle 45s):
@@ -82,5 +88,5 @@
 - `opencode run <prompt> --dir <dest> --model kodeo/grok-4.7 --format json --auto` → 1m24s, escreveu `example-inspired.html + tokens.css` (sem `--auto` → `permission rejected external_directory /*`)
 - `gpt-6-sol` → `Request timed out` em 10s; default do hub = `kodeo/grok-4.7` (`PI_MODEL` env)
 - `POST /analyze` → `engine zfrog` 5.7–6s, `palette` 3 (example.com) / 36 (stripe.com), `ZFROG_BIN=/home/zens/.local/bin/zfrog` (default absoluto em `hub-api/src/index.ts`)
-- Smoke 2026-10-14 tarde: `POST /analyze {url:example.com, tag:smoke}` → `id:76ff5270` `engine:zfrog`, `POST /packages {card_id:76ff5270, palette}` → `2a1bf891`, `GET /pond?tag=smoke` ok, `POST /catalog/reindex` → `{indexed:0,total:9}`, `POST /packages/:id/apply {dest:/tmp/zpond-projeto-j-nonexistent}` → `400 dest não existe` (error path), dest existente cria `PROMPT.md`/`evidence.json`/`PROMPT.out.jsonl` com wall 210s
+- Smoke 2026-10-14 tarde: `POST /analyze {url:example.com, tag:smoke}` → `id:76ff5270` `engine:zfrog`, `POST /packages {card_id:76ff5270, palette}` → `2a1bf891`, `GET /pond?tag=smoke` ok, `POST /catalog/reindex` → `{indexed:0,total:9}`, `POST /packages/:id/apply {dest:/tmp/zpond-projeto-j-nonexistent}` → `400 dest não existe` (error path), dest existente cria `PROMPT.md`/`evidence.json`/`PROMPT.out.jsonl` com wall 210s (2026-10-15 reindex já `{indexed:11}`)
 - Hub API: `node:sqlite` nativo, `guards.ts#isRecord` canônico, `Record<string,true>` lookup, `clearTimeout` sem guard, `import type` no topo, `spawn` estático

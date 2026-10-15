@@ -71,10 +71,12 @@ app.post("/analyze", async (req, res) => {
 
   // provider REA direto: se path local existe, tenta analyze-javascript-application / inspect-artifact sem precisar de Hopper/Ghidra
   async function runReaJson(args: string[], timeoutMs: number): Promise<Record<string, unknown> | null> {
-    const reaMjs = process.env.REA_BIN ?? "/tmp/rea-ref/scripts/rea.mjs";
-    if (!existsSync(reaMjs) && !process.env.REA_BIN) return null;
-    const cmd = existsSync(reaMjs) ? process.execPath : "npx";
-    const cmdArgs = existsSync(reaMjs) ? [reaMjs, ...args, "--format", "json"] : ["--yes", "rea-agents", ...args, "--format", "json"];
+    const vendorMjs = "/home/zens/allkodex/all-kode/all-kodez/ens-kody/ProjetosB/zpond/vendor/rea/scripts/rea.mjs";
+    const reaMjs = process.env.REA_BIN ?? vendorMjs;
+    const useLocal = existsSync(reaMjs);
+    if (!useLocal && !process.env.REA_BIN) return null;
+    const cmd = useLocal ? process.execPath : "npx";
+    const cmdArgs = useLocal ? [reaMjs, ...args, "--format", "json"] : ["--yes", "rea-agents", ...args, "--format", "json"];
     try {
       const out = await new Promise<string>((resolve, reject) => {
         const cp = spawn(cmd, cmdArgs, { timeout: timeoutMs });
@@ -198,6 +200,94 @@ app.post("/analyze", async (req, res) => {
   res.status(201).json(rowUnknown);
 });
 
+const VEC_DIM = 128;
+
+function describeCard(cardRow: Record<string, unknown>, tags: string[]): string {
+  const tokens = parseRecordJson(cardRow.tokens_json as unknown);
+  const parts: string[] = [];
+  if (typeof cardRow.title === "string" && cardRow.title) parts.push(cardRow.title);
+  if (typeof cardRow.note === "string" && cardRow.note) parts.push(cardRow.note);
+  if (tags.length) parts.push(...tags);
+  if (typeof cardRow.site === "string" && cardRow.site) parts.push(cardRow.site);
+  const paletteVal = tokens.palette;
+  const palette: unknown[] = Array.isArray(paletteVal) ? paletteVal.slice(0, 5) : [];
+  for (const entry of palette) {
+    if (typeof entry !== "object" || entry === null || !("hex" in entry)) continue;
+    const hexRaw = String((entry as Record<string, unknown>).hex ?? "").replace(/^#/, "").trim();
+    if (hexRaw.length !== 6) continue;
+    const r = parseInt(hexRaw.slice(0, 2), 16) / 255;
+    const g = parseInt(hexRaw.slice(2, 4), 16) / 255;
+    const b = parseInt(hexRaw.slice(4, 6), 16) / 255;
+    if (Number.isNaN(r) || Number.isNaN(g) || Number.isNaN(b)) continue;
+    const maxc = Math.max(r, g, b);
+    const minc = Math.min(r, g, b);
+    const l = (minc + maxc) / 2;
+    let s = 0;
+    let h = 0;
+    if (minc !== maxc) {
+      const d = maxc - minc;
+      s = l <= 0.5 ? d / (maxc + minc) : d / (2 - maxc - minc);
+      const rc = (maxc - r) / d;
+      const gc = (maxc - g) / d;
+      const bc = (maxc - b) / d;
+      if (r === maxc) h = bc - gc;
+      else if (g === maxc) h = 2 + rc - bc;
+      else h = 4 + gc - rc;
+      h = (h / 6) % 1;
+      if (h < 0) h += 1;
+    }
+    const lightness = l;
+    const saturation = s;
+    const hue = h * 360;
+    const lightnessWords: [number, string][] = [[0.18, "very dark"], [0.35, "dark"], [0.65, "light"], [1.01, "very light"]];
+    let lw = "very light";
+    for (const [lim, name] of lightnessWords) if (lightness < lim) { lw = name; break; }
+    const words = [lw];
+    if (saturation >= 0.25) {
+      const hueWords: [number, string][] = [[15, "red"], [45, "orange"], [70, "yellow"], [165, "green"], [200, "cyan"], [255, "blue"], [290, "violet"], [345, "pink"], [361, "red"]];
+      let hn = "red";
+      for (const [lim, name] of hueWords) if (hue < lim) { hn = name; break; }
+      words.push(hn, "vivid");
+    } else words.push("neutral");
+    const role = typeof (entry as Record<string, unknown>).role === "string" ? String((entry as Record<string, unknown>).role) : "";
+    parts.push(`${role ? `color ${role}` : "color"} ${words.join(" ")}`);
+  }
+  const fontsVal = tokens.fonts;
+  const fonts: unknown[] = Array.isArray(fontsVal) ? fontsVal.slice(0, 3) : [];
+  for (const f of fonts) {
+    if (typeof f !== "object" || f === null) continue;
+    const fam = typeof (f as Record<string, unknown>).family === "string" ? String((f as Record<string, unknown>).family) : "";
+    if (!fam) continue;
+    const generic = /serif|times|georgia|playfair/i.test(fam) ? "serif" : "sans-serif";
+    parts.push(`typography ${generic} ${fam}`);
+  }
+  return parts.join(" ").replace(/\s+/g, " ").trim();
+}
+
+function embedText(text: string): number[] {
+  const vec = new Array(VEC_DIM).fill(0) as number[];
+  const words = text.toLowerCase().split(/\s+/).filter((w) => w.length > 2);
+  for (const w of words) {
+    let h = 0;
+    for (let i = 0; i < w.length; i++) h = ((h << 5) - h + w.charCodeAt(i)) | 0;
+    const idx = Math.abs(h) % VEC_DIM;
+    vec[idx] += 1;
+  }
+  const norm = Math.sqrt(vec.reduce((s, v) => s + v * v, 0));
+  if (norm === 0) return vec;
+  return vec.map((v) => v / norm);
+}
+
+function cosineSim(a: number[], b: number[]): number {
+  if (!a.length || !b.length || a.length !== b.length) return 0;
+  let dot = 0;
+  let na = 0;
+  let nb = 0;
+  for (let i = 0; i < a.length; i++) { dot += a[i] * b[i]; na += a[i] * a[i]; nb += b[i] * b[i]; }
+  if (na === 0 || nb === 0) return 0;
+  return dot / (Math.sqrt(na) * Math.sqrt(nb));
+}
+
 app.get("/pond", (req, res) => {
   const queryUnknown: unknown = req.query;
   let tag: string | undefined;
@@ -233,20 +323,58 @@ app.get("/pond", (req, res) => {
     wheres.push("c.site LIKE ?");
     params.push(`%${site}%`);
   }
-  if (search) {
-    wheres.push("(c.title LIKE ? OR c.url LIKE ? OR c.note LIKE ?)");
-    const like = `%${search}%`;
-    params.push(like, like, like);
-  }
 
   if (joins.length) sql += " " + joins.join(" ");
   if (wheres.length) sql += " WHERE " + wheres.join(" AND ");
-  sql += " ORDER BY c.created_at DESC LIMIT ?";
-  params.push(limit);
+  sql += " ORDER BY c.created_at DESC LIMIT 1000";
 
   const rowsUnknown: unknown = db.prepare(sql).all(...params);
-  const rows = Array.isArray(rowsUnknown) ? rowsUnknown : [];
-  res.json({ items: rows, count: rows.length });
+  const rowsAll = Array.isArray(rowsUnknown) ? (rowsUnknown as Record<string, unknown>[]) : [];
+
+  if (search) {
+    const embRowsUnknown: unknown = db.prepare("SELECT card_id, vector FROM card_embeddings").all();
+    const embMap: Record<string, number[]> = {};
+    if (Array.isArray(embRowsUnknown)) {
+      for (const r of embRowsUnknown) {
+        if (typeof r !== "object" || r === null || !("card_id" in r) || !("vector" in r)) continue;
+        const cid = (r as Record<string, unknown>).card_id;
+        const vecStr = (r as Record<string, unknown>).vector;
+        if (typeof cid !== "string" || typeof vecStr !== "string") continue;
+        try {
+          const v: unknown = JSON.parse(vecStr);
+          if (Array.isArray(v) && v.every((e) => typeof e === "number")) embMap[cid] = v as number[];
+        } catch {}
+      }
+    }
+    if (Object.keys(embMap).length > 0) {
+      const qVec = embedText(search);
+      const scored = rowsAll.map((r) => {
+        const cid = typeof r.id === "string" ? r.id : "";
+        const v = embMap[cid];
+        let score = v ? cosineSim(qVec, v) : 0;
+        if (score === 0) {
+          const hay = `${String(r.title ?? "")} ${String(r.url ?? "")} ${String(r.note ?? "")}`.toLowerCase();
+          const terms = search.toLowerCase().split(/\s+/).filter((t) => t.length > 2);
+          if (terms.length) score = terms.filter((t) => hay.includes(t)).length / terms.length * 0.5;
+        }
+        return { row: r, score };
+      });
+      scored.sort((a, b) => b.score - a.score);
+      const filtered = scored.filter((s) => s.score > 0).slice(0, limit).map((s) => s.row);
+      const out = filtered.length ? filtered : scored.slice(0, limit).map((s) => s.row);
+      return res.json({ items: out, count: out.length });
+    }
+    const like = `%${search}%`;
+    const filtered = rowsAll.filter((r) => {
+      const hay = `${String(r.title ?? "")} ${String(r.url ?? "")} ${String(r.note ?? "")}`.toLowerCase();
+      return hay.includes(search.toLowerCase());
+    });
+    void like;
+    return res.json({ items: filtered.slice(0, limit), count: Math.min(filtered.length, limit) });
+  }
+
+  const out = rowsAll.slice(0, limit);
+  res.json({ items: out, count: out.length });
 });
 
 app.get("/extractions", (_req, res) => {
@@ -269,11 +397,29 @@ app.post("/catalog/reindex", (_req, res) => {
   const cntUnknown: unknown = db.prepare("SELECT count(*) as c FROM cards").get();
   let total = 0;
   if (typeof cntUnknown === "object" && cntUnknown !== null && "c" in cntUnknown) {
-    const c = cntUnknown.c;
+    const c = (cntUnknown as Record<string, unknown>).c;
     if (typeof c === "number") total = c;
     if (typeof c === "bigint") total = Number(c);
   }
-  res.json({ indexed: 0, total, reason: "no embedding model configured — vetorial pendente" });
+  const rowsUnknown: unknown = db.prepare("SELECT * FROM cards").all();
+  const rows = Array.isArray(rowsUnknown) ? (rowsUnknown as Record<string, unknown>[]) : [];
+  let indexed = 0;
+  for (const row of rows) {
+    const cid = typeof row.id === "string" ? row.id : "";
+    if (!cid) continue;
+    let tags: string[] = [];
+    try {
+      const tRowsUnknown: unknown = db.prepare("SELECT tag FROM card_tags WHERE card_id = ?").all(cid);
+      if (Array.isArray(tRowsUnknown)) tags = tRowsUnknown.map((r) => typeof (r as Record<string, unknown>).tag === "string" ? String((r as Record<string, unknown>).tag) : "").filter(Boolean);
+    } catch {}
+    const desc = describeCard(row, tags);
+    const vec = embedText(desc || `${String(row.title ?? "")} ${String(row.site ?? "")} ${String(row.note ?? "")}`);
+    try {
+      db.prepare("INSERT OR REPLACE INTO card_embeddings (card_id, vector, model, updated_at) VALUES (?,?,?,?)").run(cid, JSON.stringify(vec), "hash-128", Date.now() / 1000);
+      indexed++;
+    } catch {}
+  }
+  res.json({ indexed, total, model: "hash-128", reason: indexed ? "" : "nothing to index" });
 });
 
 function parseRecordJson(v: unknown): Record<string, unknown> {
