@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  hub:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm ci
+      - run: npm run build --workspace=hub-api
+      - run: npm run build --workspace=dashboard
+      - run: npm ci --prefix vendor/rea && npm run build:cached --prefix vendor/rea
+      - run: node vendor/rea/scripts/rea.mjs --help | head -n 5
+      - name: Hub smoke (hash-128 vetorial + REA path)
+        run: |
+          npm start --workspace=hub-api > /tmp/hub.log 2>&1 & echo $! > /tmp/hub.pid
+          for i in $(seq 1 15); do curl -sf http://127.0.0.1:3333/health && break || sleep 1; done
+          curl -sf http://127.0.0.1:3333/health | grep -q '"ok":true'
+          curl -sf -X POST http://127.0.0.1:3333/catalog/reindex | grep -q '"model":"hash-128"'
+          curl -sf "http://127.0.0.1:3333/pond?search=dark&limit=2" | grep -q '"items"'
+          cat /tmp/hub.log
+          kill $(cat /tmp/hub.pid) || true

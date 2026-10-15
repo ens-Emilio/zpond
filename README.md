@@ -1,5 +1,6 @@
-# zpond — a lagoa do zfrog
+[![CI](https://github.com/ens-Emilio/zpond/actions/workflows/ci.yml/badge.svg)](https://github.com/ens-Emilio/zpond/actions/workflows/ci.yml)
 
+# zpond — a lagoa do zfrog
 > `zfrog` captura. `zpond` guarda, cura e aplica.
 
 Hub unificado local que orquestra **REA** (engenharia reversa de bundles/electron/apk/HAR) +

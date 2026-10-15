@@ -11,7 +11,9 @@
     "build": "npm run build --workspace=hub-api && npm run build --workspace=dashboard",
     "desktop:dev": "cargo tauri dev",
     "desktop:build": "cargo tauri build",
-    "setup": "node mcp-setup.mjs"
+    "setup": "node mcp-setup.mjs",
+    "postinstall": "node -e \"try{const{existsSync}=require('fs');if(existsSync('vendor/rea/package.json')&&!existsSync('vendor/rea/dist/cli-runtime/cli.js')){console.log('[zpond] building vendor/rea...');require('child_process').execSync('npm ci && npm run build:cached',{cwd:'vendor/rea',stdio:'inherit'})} }catch(e){console.error('[zpond postinstall] skipped:',e.message)}\"",
+    "setup:vendor": "npm ci --prefix vendor/rea && npm run build:cached --prefix vendor/rea"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"

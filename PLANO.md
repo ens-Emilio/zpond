@@ -102,18 +102,13 @@ zpond export <id> --format html|zip
 
 **Saída:** `INVENTARIO.md` com supportedAgents atual + paths reais + formato Evidence.
 
-### FASE 1 — Provider REA direto (sem fork) — ✅ ENTREGUE 2026-10-15
+### FASE 1 — Provider REA direto + fork contabilizado — ✅ ENTREGUE 2026-10-15 (100%)
 
-Não precisa fork: `zpond` não é fork do REA, é consumidor. REA usado como bin externo.
-
-- Clone de referência: `/tmp/rea-ref` (`morluto/rea@6.5.0` — `npm ci && npm run build:cached` validado)
-- Mapeado: `analyze`/`inspect` exigem Hopper/Ghidra/IDA (provider_unavailable sem eles); `analyze-javascript-application` funciona sem Hopper (Evidence JS direto); `inspect-artifact` idem para arquivos; `analyze-web-bundle` exigiria `list-browser-targets` + CDP vivo
-- `hub-api/src/index.ts: POST /analyze` agora:
-  - `https://…` → `zfrog jump` (como antes)
-  - path local existente → tenta REA direto: diretório → `analyze-javascript-application`, arquivo → `inspect-artifact` (timeout 30s, parsing de `rea_progress` + `evidence_id`/`normalized_result`); fallback para mock se REA ausente/falhou
-  - env `REA_BIN` aponta para `scripts/rea.mjs` quando `/tmp/rea-ref` existe, senão `npx --yes rea-agents`
-- Git inicializado em `zpond/` (.gitignore: `node_modules/`, `dist/`, `src-tauri/target/`, `*.db`, `output/`); fork público = só `gh repo create` + `git remote add upstream https://github.com/morluto/rea.git` quando quiser travar versão
-- Smoke 2026-10-15: `POST /analyze {url:/tmp/rea-test-app, tag:rea-smoke}` → `engine:rea-js` `evidence_id:ev_d2eb…` ok
+- Fork contabilizado: `ens-Emilio/rea` (parent `morluto/rea@62bf098`) via `gh repo fork`; `zpond` tem `upstream https://github.com/morluto/rea.git` + `origin https://github.com/ens-Emilio/zpond.git`
+- `vendor/rea` como **git submodule** (`62bf098` pinado, `.gitmodules` commitado) — `git clone --recurse-submodules` já traz REA; não ignorado via `vendor/` no `.gitignore`; `vendor/rea/dist` built via `postinstall` (idempotente, `npm ci && build:cached` se `dist/cli-runtime/cli.js` ausente) + `setup:vendor` manual
+- `POST /analyze` path local → REA `analyze-javascript-application`/`inspect-artifact` (`REA_BIN=vendor/rea/scripts/rea.mjs`, fallback `npx`) — smoke `rea-js 836ac484` ok
+- Mapeado: `analyze`/`inspect` exigem Hopper/Ghidra (`provider_unavailable`); `analyze-javascript-application` funciona offline
+- Smoke 2026-10-15: `POST /analyze {url:/tmp/rea-test-app}` → `engine:rea-js` ok; `https://…` → `zfrog` como antes
 ### FASE 2 — Conector Universal de Agents (1 dia) — ✅ CONCLUÍDO
 
 - `mcp-setup.mjs` com `stripJsonc` (// e /* */ + trailing commas), paths absolutos via `fileURLToPath`, `ROOT/MCP_ENTRY`
@@ -130,17 +125,17 @@ Stack: Node 22+ (`zfrog` via `spawn` estático, sem `await import` dinâmico).
 
 ```
 GET  /targets              # chrome :9222 (800ms timeout) — hint se vazio
-POST /analyze { url,tag,tags,note } # zfrog jump real via ZFROG_BIN (20s wall), fallback mock
+POST /analyze { url,tag,tags,note } # https→zfrog (20s wall), path local→REA vendor/rea (30s wall), fallback mock
 GET  /extractions / :id    # viewer
 POST /packages { card_id,selectedFeatures } → prompt.md + evidence/tokens filtrados
 GET  /packages / :id
-POST /packages/:id/apply { dest,agent } # pi/omp/opencode (wall 210s, idle 45s, modelo kodeo/grok-4.7)
-GET  /pond?tag=&color=&search=&site=&limit=
-POST /catalog/reindex      # retorna { indexed:0, total, reason:"no embedding" } — vetorial pendente
+POST /packages/:id/apply { dest,agent } # pi/omp/opencode (wall 210s, idle 45s, kodeo/grok-4.7)
+GET  /pond?tag=&color=&search=&site=&limit= # search rank cosine sobre card_embeddings (hash-128 ou remoto)
+POST /catalog/reindex      # hash-128 por padrão (indexed:11), ou ZPOND_EMBEDDING_URL/model remoto (5s, OpenAI compat, fallback hash)
 ```
 
-Persistência: `node:sqlite` (`node:sqlite` nativo, sem `better-sqlite3`) em `~/.zpond/hub.db` + `card_tags`/`card_colors`/`card_embeddings`/`packages`.
-Guards canônicos `hub-api/src/guards.ts#isRecord`, `import type` no topo, `Record<string,true>` lookup, `clearTimeout` sem guard redundante.
+Persistência: `node:sqlite` (`node:sqlite` nativo) em `~/.zpond/hub.db` + `card_tags`/`card_colors`/`card_embeddings`/`packages`.
+Guards canônicos `hub-api/src/guards.ts#isRecord`, `Record<string,number[]>` embeddings (ts-set-map), `Record<string,true>` lookup, `clearTimeout` sem guard.
 
 ### FASE 4 — Front MVP A (2 dias) — ✅ ENTREGUE
 
