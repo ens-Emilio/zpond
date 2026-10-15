@@ -1,0 +1,51 @@
+{
+  "version": "0.1.4",
+  "identifier": "com.zpond.desktop",
+  "build": {
+    "beforeDevCommand": "npm --prefix dashboard run dev -- --port 3067 --host 127.0.0.1",
+    "beforeBuildCommand": "",
+    "devUrl": "http://localhost:3067",
+    "frontendDist": "../dashboard/dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "zpond",
+        "width": 1280,
+        "height": 820,
+        "minWidth": 960,
+        "minHeight": 600,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self' tauri: asset: http://asset.localhost; script-src 'self' 'sha256-36VkN0JwhRbigrUJFbD23oBUac8yFW2quF+XDCPNq9A=' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: data: http: https:; connect-src 'self' https://github.com https://api.github.com https://objects.githubusercontent.com https://*.githubusercontent.com https://*.githubassets.com http://127.0.0.1:* http://localhost:* ipc: http://ipc.localhost; font-src 'self' data:"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "appimage",
+      "nsis",
+      "msi"
+    ],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.png",
+      "icons/icon.ico"
+    ],
+    "publisher": "zpond",
+    "category": "DeveloperTool",
+    "shortDescription": "zpond \u2014 a lagoa do zfrog",
+    "longDescription": "Capture, organize and adapt web design references.",
+    "createUpdaterArtifacts": false
+  },
+  "plugins": {
+    "shell": {
+      "open": true
+    }
+  }
+}

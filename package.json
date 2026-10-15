@@ -1,0 +1,23 @@
+{
+  "name": "zpond",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "hub-api",
+    "dashboard"
+  ],
+  "scripts": {
+    "dev": "concurrently -n api,web -c blue,green \"npm run dev --workspace=hub-api\" \"npm run dev --workspace=dashboard\"",
+    "build": "npm run build --workspace=hub-api && npm run build --workspace=dashboard",
+    "desktop:dev": "cargo tauri dev",
+    "desktop:build": "cargo tauri build",
+    "setup": "node mcp-setup.mjs"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  },
+  "allowScripts": {
+    "better-sqlite3@9.6.0": true,
+    "esbuild@0.28.2": true
+  }
+}

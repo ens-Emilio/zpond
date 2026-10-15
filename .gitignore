@@ -1,0 +1,11 @@
+node_modules/
+dashboard/dist/
+dashboard/node_modules/
+hub-api/node_modules/
+hub-api/dist/
+src-tauri/target/
+*.db
+*.db-shm
+*.db-wal
+output/
+dashboard/tsconfig.tsbuildinfo
