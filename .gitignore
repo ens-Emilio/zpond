@@ -9,4 +9,3 @@ src-tauri/target/
 *.db-wal
 output/
 dashboard/tsconfig.tsbuildinfo
-vendor/

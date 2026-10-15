@@ -278,6 +278,34 @@ function embedText(text: string): number[] {
   return vec.map((v) => v / norm);
 }
 
+async function embedTextRemote(text: string): Promise<{ vec: number[]; model: string } | null> {
+  const url = process.env.ZPOND_EMBEDDING_URL;
+  if (!url) return null;
+  const model = process.env.ZPOND_EMBEDDING_MODEL ?? "remote";
+  try {
+    const r = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ input: text, model }),
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!r.ok) return null;
+    const j: unknown = await r.json();
+    if (typeof j !== "object" || j === null || !("data" in j)) return null;
+    const dataVal = (j as Record<string, unknown>).data;
+    const arr = Array.isArray(dataVal) ? dataVal[0] as unknown : null;
+    const emb = arr !== null && typeof arr === "object" && "embedding" in arr ? (arr as Record<string, unknown>).embedding : dataVal;
+    if (Array.isArray(emb) && emb.every((e) => typeof e === "number") && emb.length > 0) return { vec: emb as number[], model };
+  } catch {}
+  return null;
+}
+
+async function embedForReindex(text: string): Promise<{ vec: number[]; model: string }> {
+  const remote = await embedTextRemote(text);
+  if (remote) return remote;
+  return { vec: embedText(text), model: "hash-128" };
+}
+
 function cosineSim(a: number[], b: number[]): number {
   if (!a.length || !b.length || a.length !== b.length) return 0;
   let dot = 0;
@@ -288,7 +316,7 @@ function cosineSim(a: number[], b: number[]): number {
   return dot / (Math.sqrt(na) * Math.sqrt(nb));
 }
 
-app.get("/pond", (req, res) => {
+app.get("/pond", async (req, res) => {
   const queryUnknown: unknown = req.query;
   let tag: string | undefined;
   let color: string | undefined;
@@ -347,7 +375,8 @@ app.get("/pond", (req, res) => {
       }
     }
     if (Object.keys(embMap).length > 0) {
-      const qVec = embedText(search);
+      const remoteQ = await embedTextRemote(search);
+      const qVec = remoteQ ? remoteQ.vec : embedText(search);
       const scored = rowsAll.map((r) => {
         const cid = typeof r.id === "string" ? r.id : "";
         const v = embMap[cid];
@@ -392,7 +421,7 @@ app.get("/extractions/:id", (req, res) => {
   res.json(rowUnknown);
 });
 
-app.post("/catalog/reindex", (_req, res) => {
+app.post("/catalog/reindex", async (_req, res) => {
   const db = getDb();
   const cntUnknown: unknown = db.prepare("SELECT count(*) as c FROM cards").get();
   let total = 0;
@@ -404,6 +433,7 @@ app.post("/catalog/reindex", (_req, res) => {
   const rowsUnknown: unknown = db.prepare("SELECT * FROM cards").all();
   const rows = Array.isArray(rowsUnknown) ? (rowsUnknown as Record<string, unknown>[]) : [];
   let indexed = 0;
+  let modelUsed = "hash-128";
   for (const row of rows) {
     const cid = typeof row.id === "string" ? row.id : "";
     if (!cid) continue;
@@ -413,13 +443,15 @@ app.post("/catalog/reindex", (_req, res) => {
       if (Array.isArray(tRowsUnknown)) tags = tRowsUnknown.map((r) => typeof (r as Record<string, unknown>).tag === "string" ? String((r as Record<string, unknown>).tag) : "").filter(Boolean);
     } catch {}
     const desc = describeCard(row, tags);
-    const vec = embedText(desc || `${String(row.title ?? "")} ${String(row.site ?? "")} ${String(row.note ?? "")}`);
+    const text = desc || `${String(row.title ?? "")} ${String(row.site ?? "")} ${String(row.note ?? "")}`;
+    const { vec, model } = await embedForReindex(text);
+    modelUsed = model;
     try {
-      db.prepare("INSERT OR REPLACE INTO card_embeddings (card_id, vector, model, updated_at) VALUES (?,?,?,?)").run(cid, JSON.stringify(vec), "hash-128", Date.now() / 1000);
+      db.prepare("INSERT OR REPLACE INTO card_embeddings (card_id, vector, model, updated_at) VALUES (?,?,?,?)").run(cid, JSON.stringify(vec), model, Date.now() / 1000);
       indexed++;
     } catch {}
   }
-  res.json({ indexed, total, model: "hash-128", reason: indexed ? "" : "nothing to index" });
+  res.json({ indexed, total, model: modelUsed, reason: indexed ? "" : "nothing to index" });
 });
 
 function parseRecordJson(v: unknown): Record<string, unknown> {
