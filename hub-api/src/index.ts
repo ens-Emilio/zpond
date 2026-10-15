@@ -3,7 +3,7 @@ import express from "express";
 import cors from "cors";
 import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
-import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { getDb } from "./db.js";
 
@@ -51,6 +51,8 @@ app.post("/analyze", async (req, res) => {
   const tagVal = "tag" in bodyUnknown && typeof bodyUnknown.tag === "string" ? bodyUnknown.tag : undefined;
   const tagsRawVal = "tags" in bodyUnknown ? bodyUnknown.tags : undefined;
   const noteVal = "note" in bodyUnknown && typeof bodyUnknown.note === "string" ? bodyUnknown.note : undefined;
+  const engineHintVal = "engine" in bodyUnknown && typeof bodyUnknown.engine === "string" ? bodyUnknown.engine : "mode" in bodyUnknown && typeof bodyUnknown.mode === "string" ? bodyUnknown.mode : undefined;
+  const engineHint = typeof engineHintVal === "string" ? engineHintVal.toLowerCase() : "";
 
   let tagsInput: string[] = [];
   if (Array.isArray(tagsRawVal)) {
@@ -102,58 +104,89 @@ app.post("/analyze", async (req, res) => {
   }
 
   if (/^https?:\/\//.test(url)) {
-    try {
-      const zfrogBin = process.env.ZFROG_BIN ?? "/home/zens/.local/bin/zfrog";
-      const zfrogOutBase = process.env.ZFROG_OUTPUT ?? "/home/zens/allkodex/all-kode/all-kodez/ens-kody/ProjetosA/zfrog/output";
-      const beforeList = existsSync(zfrogOutBase) ? readdirSync(zfrogOutBase) : [];
-      const beforeLookup: Record<string, true> = {};
-      for (const d of beforeList) beforeLookup[d] = true;
-      const tmpOut = `/tmp/zpond-analyze-${Date.now()}`;
-      const args = ["jump", url, "--output", tmpOut];
-      if (tags.length) for (const t of tags.slice(0, 3)) args.push("--tag", t);
-      const ok = await new Promise<boolean>(resolve => {
-        const cp = spawn(zfrogBin, args, { timeout: 20000 });
-        let done = false;
-        const to = setTimeout(()=>{ if(!done){ try{cp.kill();}catch{} resolve(false); }}, 20000);
-        cp.on("error", ()=>{ clearTimeout(to); resolve(false); });
-        cp.on("close", code => { clearTimeout(to); done=true; resolve(code===0); });
-      });
-      let dtPath: string | null = null;
-      for (const base of [tmpOut, zfrogOutBase]) {
-        if (!existsSync(base)) continue;
-        const after = readdirSync(base);
-        for (const d of after) {
-          const cand = join(base, d, "design-tokens.json");
-          if (existsSync(cand)) {
-            if (base===tmpOut || !beforeLookup[d]) { dtPath = cand; zfrogCardId = d; break; }
+    const wantRea = engineHint === "rea" || engineHint === "bundle" || engineHint === "js";
+    if (wantRea) {
+      try {
+        const tmpRoot = `/tmp/zpond-remote-${Date.now()}`;
+        mkdirSync(tmpRoot, { recursive: true });
+        const isJs = url.endsWith(".js") && !url.endsWith(".html");
+        const dest = isJs ? join(tmpRoot, "bundle.js") : join(tmpRoot, "index.html");
+        const html = await fetch(url, { signal: AbortSignal.timeout(15000) }).then((r) => {
+          if (!r.ok) throw new Error(String(r.status));
+          return r.text();
+        }).catch(() => "");
+        if (html) {
+          writeFileSync(dest, html, "utf8");
+          const target = isJs ? dest : tmpRoot;
+          const isDir = !isJs;
+          const reaArgs = isDir ? ["analyze-javascript-application", target] : ["inspect-artifact", target];
+          const reaRes = await runReaJson(reaArgs, 60000);
+          if (reaRes) {
+            evidence = { source: "rea", url, rea: reaRes, note: noteVal ?? "", extractedAt: new Date().toISOString() };
+            const norm: unknown = reaRes.normalized_result ?? reaRes;
+            if (isRecord(norm)) {
+              const summary: Record<string, unknown> = { url, reaEvidenceId: reaRes.evidence_id ?? reaRes.evidenceId };
+              if ("inventory_manifest" in norm) summary.inventory = norm.inventory_manifest;
+              if ("application_graph" in norm) summary.graph = "js-application";
+              tokens = { ...tokens, rea: summary, raw: norm };
+            } else tokens = { ...tokens, rea: reaRes };
+            engine = "rea-remote";
           }
         }
-        if (dtPath) break;
-        if (base===zfrogOutBase && after.length) {
-          let best: string | null = null; let bestM=0;
+      } catch {}
+    }
+    if (engine === "mock") {
+      try {
+        const zfrogBin = process.env.ZFROG_BIN ?? "/home/zens/.local/bin/zfrog";
+        const zfrogOutBase = process.env.ZFROG_OUTPUT ?? "/home/zens/allkodex/all-kode/all-kodez/ens-kody/ProjetosA/zfrog/output";
+        const beforeList = existsSync(zfrogOutBase) ? readdirSync(zfrogOutBase) : [];
+        const beforeLookup: Record<string, true> = {};
+        for (const d of beforeList) beforeLookup[d] = true;
+        const tmpOut = `/tmp/zpond-analyze-${Date.now()}`;
+        const args = ["jump", url, "--output", tmpOut];
+        if (tags.length) for (const t of tags.slice(0, 3)) args.push("--tag", t);
+        const ok = await new Promise<boolean>(resolve => {
+          const cp = spawn(zfrogBin, args, { timeout: 20000 });
+          let done = false;
+          const to = setTimeout(()=>{ if(!done){ try{cp.kill();}catch{} resolve(false); }}, 20000);
+          cp.on("error", ()=>{ clearTimeout(to); resolve(false); });
+          cp.on("close", code => { clearTimeout(to); done=true; resolve(code===0); });
+        });
+        let dtPath: string | null = null;
+        for (const base of [tmpOut, zfrogOutBase]) {
+          if (!existsSync(base)) continue;
+          const after = readdirSync(base);
           for (const d of after) {
             const cand = join(base, d, "design-tokens.json");
-            if (!existsSync(cand)) continue;
-            try {
-              const st = statSync(cand);
-              if (st.mtimeMs > bestM) { bestM=st.mtimeMs; best=cand; zfrogCardId=d; }
-            } catch {}
+            if (existsSync(cand)) {
+              if (base===tmpOut || !beforeLookup[d]) { dtPath = cand; zfrogCardId = d; break; }
+            }
           }
-          if (best) { dtPath=best; break; }
+          if (dtPath) break;
+          if (base===zfrogOutBase && after.length) {
+            let best: string | null = null; let bestM=0;
+            for (const d of after) {
+              const cand = join(base, d, "design-tokens.json");
+              if (!existsSync(cand)) continue;
+              try {
+                const st = statSync(cand);
+                if (st.mtimeMs > bestM) { bestM=st.mtimeMs; best=cand; zfrogCardId=d; }
+              } catch {}
+            }
+            if (best) { dtPath=best; break; }
+          }
         }
-      }
-      if (dtPath && existsSync(dtPath)) {
-        const raw = readFileSync(dtPath, "utf8");
-        const parsed: unknown = JSON.parse(raw);
-        if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+        if (dtPath && existsSync(dtPath)) {
+          const raw = readFileSync(dtPath, "utf8");
+          const parsed: unknown = JSON.parse(raw);
           if (isRecord(parsed)) tokens = parsed;
+          evidence = { source: "zfrog", url, cardId: zfrogCardId, designTokensPath: dtPath, note: noteVal ?? "", extractedAt: new Date().toISOString() };
+          engine = "zfrog";
+        } else if (ok && zfrogCardId) {
+          engine = "zfrog-no-tokens";
         }
-        evidence = { source: "zfrog", url, cardId: zfrogCardId, designTokensPath: dtPath, note: noteVal ?? "", extractedAt: new Date().toISOString() };
-        engine = "zfrog";
-      } else if (ok && zfrogCardId) {
-        engine = "zfrog-no-tokens";
-      }
-    } catch {}
+      } catch {}
+    }
   } else if (existsSync(url)) {
     try {
       const st = statSync(url);

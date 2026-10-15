@@ -59,13 +59,17 @@ function Alvos() {
     fetch(`${API}/extractions`).then(r=>r.json()).then(d=>setExtractions(d.items ?? [])).catch(()=>{})
   }, [])
   React.useEffect(() => { load() }, [load])
-  const analyze = async () => {
+  const analyze = async (opts?: { engine?: string }) => {
     if (!url.trim()) return
     setMsg("analisando...")
-    const r = await fetch(`${API}/analyze`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ url: url.trim(), tag: tag.trim() || undefined }) })
+    const isBundle = url.trim().endsWith(".js") || tag.trim() === "colat-bundle"
+    const body: Record<string, string> = { url: url.trim() }
+    if (tag.trim()) body.tag = tag.trim()
+    if (opts?.engine || isBundle) body.engine = opts?.engine ?? "rea"
+    const r = await fetch(`${API}/analyze`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })
     const j = await r.json()
     if (!r.ok) { setMsg(j.error ?? "erro"); return }
-    setMsg(`criado ${j.id}`)
+    setMsg(`criado ${j.id} ${j.engine ? `(${j.engine})` : ""}`)
     load()
   }
   const [observing, setObserving] = React.useState(false)
@@ -84,9 +88,10 @@ function Alvos() {
     <div className="space-y-4">
       <h1 className="text-2xl font-semibold">Alvos</h1>
       <div className="flex flex-wrap gap-2">
-        <input value={url} onChange={e=>setUrl(e.target.value)} placeholder="https://site.com ou /path/local" className="min-w-[320px] flex-1 rounded border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm outline-none focus:border-zinc-500" />
-        <input value={tag} onChange={e=>setTag(e.target.value)} placeholder="tag" className="w-32 rounded border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm outline-none" />
-        <button onClick={analyze} className="rounded bg-white px-4 py-2 text-sm font-medium text-black hover:bg-zinc-200">Analisar</button>
+        <input value={url} onChange={e=>setUrl(e.target.value)} placeholder="https://site.com | https://.../bundle.js (engine=rea) | /path/local" className="min-w-[320px] flex-1 rounded border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm outline-none focus:border-zinc-500" />
+        <input value={tag} onChange={e=>setTag(e.target.value)} placeholder="tag (ex: colat-bundle)" className="w-36 rounded border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm outline-none" />
+        <button onClick={()=>analyze()} className="rounded bg-white px-4 py-2 text-sm font-medium text-black hover:bg-zinc-200">Analisar</button>
+        <button onClick={()=>analyze({engine:"rea"})} className="rounded border border-zinc-700 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-800">REA</button>
         <button onClick={observe} disabled={observing} className="rounded border border-zinc-700 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-800 disabled:opacity-50">Observar 10s</button>
         {isTauri && <button onClick={async()=>{ const p=await tauriPick("folder"); if(p) setUrl(p)}} className="rounded border border-amber-700/50 px-3 py-2 text-sm text-amber-300 hover:bg-zinc-800">📂 Pasta</button>}
         {isTauri && <button onClick={async()=>{ const p=await tauriPick("file"); if(p) setUrl(p)}} className="rounded border border-amber-700/50 px-3 py-2 text-sm text-amber-300 hover:bg-zinc-800">📄 Arquivo</button>}
