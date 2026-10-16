@@ -1,8 +1,8 @@
 [package]
 name = "zpond-desktop"
-version = "0.1.0"
+version = "0.1.4"
 description = "zpond — a lagoa do zfrog"
-authors = ["zpond"]
+authors = ["Emilio N. Silva"]
 edition = "2021"
 rust-version = "1.77"
 
